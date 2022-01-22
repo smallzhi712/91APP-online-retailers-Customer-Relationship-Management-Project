@@ -1,0 +1,852 @@
+---
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setenv(LANGUAGE = "en")
+options(stringsAsFactors = F)
+library(tidyverse)
+library(scales)
+library(lubridate)
+library(factoextra)
+```
+
+# Read data
+## Main data
+```{r}
+Member_raw <- read.csv("bda2021_91APP_dataset/91APP_MemberData.csv")
+Order_raw <- read.csv("bda2021_91APP_dataset/91APP_OrderData.csv")
+#Slave_raw <- read.csv("bda2021_91APP_dataset/91APP_OrderSlaveData.csv")
+Profile_raw <- read.csv("bda2021_91APP_dataset/91APP_PeopleView_Profile.csv")
+```
+## Behavior data
+```{r}
+#Create empty dataframe
+User_Registeration <- data.frame()
+Main_PageView <- data.frame()
+Product_PageView <- data.frame()
+Category_PageView <- data.frame()
+Activity_PageView <- data.frame()
+Search <- data.frame()
+Add_To_Cart <- data.frame()
+Checkout <- data.frame()
+Purchase <- data.frame()
+Traffic_Source <- data.frame()
+
+Date_Range <- seq(as.Date("2018-06-26"), as.Date("2021-04-30"), by = "day")
+
+#Behavior_Data <- c("userRegisteration", "mainPageView", "productPageView", "categoryPageView", "activityPageView", "search", "addToCart", "checkout", "purchase", "trafficSource")
+Behavior_Data <- c("trafficSource")
+
+#Read behavior data
+for(i in Behavior_Data){
+  for(j in 1:length(Date_Range)){
+    if(i == "userRegisteration"){
+      User_Registeration_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      User_Registeration <- User_Registeration %>% bind_rows(User_Registeration_raw)
+    }else if(i == "mainPageView"){
+      Main_PageView_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Main_PageView <- Main_PageView %>% bind_rows(Main_PageView_raw)
+    }else if(i == "productPageView"){
+      Product_PageView_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Product_PageView <- Product_PageView %>% bind_rows(Product_PageView_raw)
+    }else if(i == "categoryPageView"){
+      Category_PageView_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Category_PageView <- Category_PageView %>% bind_rows(Category_PageView_raw)
+    }else if(i == "activityPageView"){
+      Activity_PageView_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Activity_PageView <- Activity_PageView %>% bind_rows(Activity_PageView_raw)
+    }else if(i == "search"){
+      Search_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Search <- Search %>% bind_rows(Search_raw)
+    }else if(i == "addToCart"){
+      Add_To_Cart_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Add_To_Cart <- Add_To_Cart %>% bind_rows(Add_To_Cart_raw)
+    }else if(i == "checkout"){
+      Checkout_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Checkout <- Checkout %>% bind_rows(Checkout_raw)
+    }else if(i == "purchase"){
+      Purchase_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Purchase <- Purchase %>% bind_rows(Purchase_raw)
+    }else if(i == "trafficSource"){
+      Traffic_Source_raw <- read.csv(sprintf("bda2021_91APP_dataset/91APP_BehaviorData/%s_%s.csv", i, Date_Range[j]))
+      Traffic_Source <- Traffic_Source %>% bind_rows(Traffic_Source_raw)
+    }
+  }
+}
+
+```
+## Save & Load Data
+```{r}
+#write.csv(Traffic_Source, "temp/Traffic_Source.csv")
+Traffic_Source <- read.csv("temp/Traffic_Source.csv")
+```
+
+# Select column
+## Member
+```{r}
+Member <- Member_raw %>%
+  select(MemberID, Gender, Birthday, MemberCardLevel, RegisterDateTime) %>%
+  #mutate(Gender = case_when(
+    #Gender == "Female" ~ 0,
+    #Gender == "Male" ~ 1,
+    #TRUE ~ 2)) %>%
+  mutate(Gender = sub("^$", "Null", Gender)) %>% 
+  mutate(Age = floor(as.numeric(Sys.Date() - as.Date(Birthday)) / 365)) %>%
+  mutate(RegisterDate = as.Date(RegisterDateTime)) %>% 
+  select(-Birthday, -RegisterDateTime)
+Member[Member == ""] <- NA
+Member <- Member %>% drop_na()
+```
+## Order
+```{r}
+Order <- Order_raw %>%
+  filter(Status == "Finish") %>% 
+  #filter(Status == "Finish" | Status == "Return") %>% 
+  select(MemberID, TradesGroupCode, TradesDateTime, ChannelType, ChannelDetail, TsCount, Qty, TotalSalesAmount, TotalPrice, TotalDiscount) %>% 
+  mutate(TradesDate = as.Date(TradesDateTime)) %>%
+  mutate(TradesTime = strftime(TradesDateTime, format="%H")) %>% 
+  mutate(ChannelOO = if_else(ChannelType %in% c("OfficialECom", "Mall"), "Online", "Offline"))
+```
+
+# Exploratory Data Analysis (EDA)
+## Gender
+```{r}
+ggplot(Member %>% group_by(Gender) %>% count(), aes(Gender, n)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.5) + 
+  labs(x = "Gender", y = "Count")
+```
+## Member Card Level
+```{r}
+ggplot(Member %>% group_by(MemberCardLevel) %>% count(), aes(MemberCardLevel, n)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 5) + 
+  labs(x = "Card Level", y = "Count") +
+  scale_y_continuous(labels = comma)
+```
+## Age
+```{r}
+ggplot(Member %>%
+         filter(Age > 0 & Age <= 100) %>% #Unreasonable data
+         mutate(Age_Group = case_when(
+          (Age > 0 & Age <= 10) ~ "0s",
+          (Age > 10 & Age <= 20) ~ "10s",
+          (Age > 20 & Age <= 30) ~ "20s",
+          (Age > 30 & Age <= 40) ~ "30s",
+          (Age > 40 & Age <= 50) ~ "40s",
+          (Age > 50 & Age <= 60) ~ "50s",
+          (Age > 60 & Age <= 70) ~ "60s",
+          (Age > 70 & Age <= 80) ~ "70s",
+          (Age > 80 & Age <= 90) ~ "80s",
+          (Age > 90 & Age <= 100) ~ "90s")) %>%
+         group_by(Age_Group) %>% count(), aes(Age_Group, n)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.5) + 
+  labs(x = "Card Level", y = "Count") +
+  scale_y_continuous(labels = comma)
+```
+## Member Time (By RegisterDate)
+```{r}
+ggplot(Member %>%
+         mutate(Member_Time = as.numeric(Sys.Date() - as.Date(RegisterDate))) #%>%
+         #filter(Member_Time < 10000), #Unreasonable
+       ,aes(Member_Time)) +
+  geom_density(colour = "darkblue") +
+  labs(x = "Member Time", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+```
+## Trade Date (By TradesDateTime)
+```{r}
+ggplot(Order, aes(TradesDate)) +
+  geom_density() +
+  scale_y_continuous(labels = comma)
+```
+## Trade Time (By TradesDateTime)
+```{r}
+ggplot(Order %>% group_by(TradesTime) %>% count(), aes(TradesTime, n)) +
+  geom_bar(stat = "identity")
+```
+## ChannelType / ChannelOO
+```{r}
+ggplot(Order %>% group_by(ChannelType, ChannelOO) %>% count(), aes(x = ChannelOO, y = n, fill = ChannelType)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.5) + 
+  labs(x = "Offline/Online", y = "Count") +
+  scale_y_continuous(labels = comma)
+```
+## TotalSalesAmount
+```{r}
+ggplot(Order , aes(TotalSalesAmount)) + #%>% filter(TotalSalesAmount > 0)
+  geom_density(colour = "darkblue") +
+  labs(x = "Total Sales Amount", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+
+ggplot(Order %>% filter(TotalSalesAmount > 0, TotalSalesAmount <= 5000) , aes(TotalSalesAmount)) + 
+  geom_density(colour = "darkblue") +
+  labs(x = "Total Sales Amount", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+```
+# OMO Analysis
+## Member & Order
+```{r}
+M_O <- Member %>%
+  mutate(Member_Time = as.numeric(Sys.Date() - as.Date(RegisterDate))) %>% 
+  left_join(Order, by = "MemberID") %>% 
+  drop_na() %>% 
+  mutate(Register_Trade = as.numeric(TradesDate - RegisterDate))
+```
+## OMO(No filter)
+### Level
+```{r}
+OMO <- M_O %>%
+  group_by(MemberID, ChannelOO) %>% 
+  count() %>%
+  spread(ChannelOO, n) %>% 
+  replace(., is.na(.), 0) %>%
+  mutate(Buy_Count = Offline + Online) %>% 
+  mutate(Online_Perc = Online/Buy_Count * 100) %>% 
+  mutate(OMO_Level = case_when(
+    (Online_Perc > 40 & Online_Perc < 60) ~ 1,
+    ((Online_Perc >= 60 & Online_Perc < 70)|(Online_Perc > 30 & Online_Perc <= 40)) ~ 2,
+    ((Online_Perc >= 70 & Online_Perc < 80)|(Online_Perc > 20 & Online_Perc <= 30)) ~ 3,
+    ((Online_Perc >= 80 & Online_Perc < 90)|(Online_Perc > 10 & Online_Perc <= 20)) ~ 4,
+    ((Online_Perc >= 90 & Online_Perc < 100)|(Online_Perc > 0 & Online_Perc <= 10)) ~ 5,
+    (Online_Perc == 0) ~ 0,
+    (Online_Perc == 100) ~ 6))
+```
+### Bind Sales
+```{r}
+OMO_Sales <- OMO %>%
+  left_join(M_O %>%
+              group_by(MemberID) %>%
+              summarise(Sales = sum(TotalSalesAmount)),
+            by = "MemberID") %>%
+  mutate(OMO_Level = factor(OMO_Level,levels = c(0, 1, 2, 3, 4, 5, 6)))
+```
+### Plot(Off/OMO/On)
+```{r}
+ggplot(OMO_Sales %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "Off" = "0")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "1")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "2")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "3")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "4")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "5")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "On" = "6")) %>%
+         group_by(OMO_Level) %>%
+         summarise(Sum_Sales = sum(Sales))) +
+  geom_col(aes(OMO_Level, Sum_Sales)) +
+  scale_y_continuous(labels = comma)
+
+ggplot(OMO_Sales %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "Off" = "0")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "1")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "2")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "3")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "4")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "5")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "On" = "6")) %>%
+         group_by(OMO_Level) %>%
+         summarise(Sum_Count = sum(Buy_Count))) +
+  geom_col(aes(OMO_Level, Sum_Count)) +
+  scale_y_continuous(labels = comma)
+```
+### Plot(Off/OMO(5)/On)
+```{r}
+#Sum Sales
+ggplot(OMO_Sales %>%group_by(OMO_Level) %>% summarise(Sum_Sales = sum(Sales))) +
+  geom_col(aes(OMO_Level, Sum_Sales)) +
+  scale_y_continuous(labels = comma)
+
+#Sum Buy Count
+ggplot(OMO_Sales %>%group_by(OMO_Level) %>% summarise(Sum_Count = sum(Buy_Count))) +
+  geom_col(aes(OMO_Level, Sum_Count)) +
+  scale_y_continuous(labels = comma)
+
+#Sales
+ggplot(OMO_Sales) +
+  geom_point(aes(OMO_Level, Sales)) +
+  scale_y_continuous(labels = comma)
+
+#Buy Count
+ggplot(OMO_Sales) +
+  geom_point(aes(OMO_Level, Buy_Count)) +
+  scale_y_continuous(labels = comma)
+```
+## OMO(Filter)
+### Level
+```{r}
+OMO <- M_O %>%
+  filter(Register_Trade <= 365 & Register_Trade >= 0) %>% 
+  group_by(MemberID, ChannelOO) %>% 
+  count() %>%
+  spread(ChannelOO, n) %>% 
+  replace(., is.na(.), 0) %>%
+  mutate(Buy_Count = Offline + Online) %>% 
+  mutate(Online_Perc = Online/Buy_Count * 100) %>%
+  mutate(OMO_Level = case_when(
+    (Online_Perc > 40 & Online_Perc < 60) ~ 1,
+    ((Online_Perc >= 60 & Online_Perc < 70)|(Online_Perc > 30 & Online_Perc <= 40)) ~ 2,
+    ((Online_Perc >= 70 & Online_Perc < 80)|(Online_Perc > 20 & Online_Perc <= 30)) ~ 3,
+    ((Online_Perc >= 80 & Online_Perc < 90)|(Online_Perc > 10 & Online_Perc <= 20)) ~ 4,
+    ((Online_Perc >= 90 & Online_Perc < 100)|(Online_Perc > 0 & Online_Perc <= 10)) ~ 5,
+    (Online_Perc == 0) ~ 0,
+    (Online_Perc == 100) ~ 6))
+```
+### Bind Sales
+```{r}
+OMO_Sales <- OMO %>%
+  left_join(M_O %>%
+              group_by(MemberID) %>%
+              summarise(Sales = sum(TotalSalesAmount)),
+            by = "MemberID") %>%
+  mutate(OMO_Level = factor(OMO_Level,levels = c(0, 1, 2, 3, 4, 5, 6))) %>% 
+  filter(Sales <= 100000)
+```
+### Plot(Off/OMO/On)
+```{r}
+ggplot(OMO_Sales %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "Off" = "0")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "1")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "2")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "3")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "4")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "5")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "On" = "6")) %>%
+         group_by(OMO_Level) %>%
+         summarise(Sum_Sales = sum(Sales))) +
+  geom_col(aes(OMO_Level, Sum_Sales)) +
+  scale_y_continuous(labels = comma)
+
+ggplot(OMO_Sales %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "Off" = "0")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "1")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "2")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "3")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "4")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "5")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "On" = "6")) %>%
+         group_by(OMO_Level) %>%
+         summarise(MeanSales = mean(Sales), MedianSales = median(Sales)) %>% 
+         gather(Sales_Stats, value = "Value", -OMO_Level), aes(x = OMO_Level, y = Value, fill = Sales_Stats)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = comma)
+
+ggplot(OMO_Sales %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "Off" = "0")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "1")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "2")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "3")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "4")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "OMO" = "5")) %>%
+         mutate(OMO_Level = fct_recode(OMO_Level, "On" = "6")) %>%
+         group_by(OMO_Level) %>%
+         summarise(Sum_Count = sum(Buy_Count))) +
+  geom_col(aes(OMO_Level, Sum_Count)) +
+  scale_y_continuous(labels = comma)
+```
+### Plot(Off/OMO(5)/On)
+```{r}
+#Sum Sales
+ggplot(OMO_Sales %>% group_by(OMO_Level) %>% summarise(Sum_Sales = sum(Sales))) +
+  geom_col(aes(OMO_Level, Sum_Sales)) +
+  scale_y_continuous(labels = comma)
+
+
+ggplot(OMO_Sales %>%
+         group_by(OMO_Level) %>%
+         summarise(MeanSales = mean(Sales), MedianSales = median(Sales)) %>% 
+         gather(Sales_Stats, value = "Value", -OMO_Level), aes(x = OMO_Level, y = Value, fill = Sales_Stats)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = comma)
+
+
+#Sum Buy Count
+ggplot(OMO_Sales %>% group_by(OMO_Level) %>% summarise(Sum_Count = sum(Buy_Count))) +
+  geom_col(aes(OMO_Level, Sum_Count)) +
+  scale_y_continuous(labels = comma)
+
+#Sales
+ggplot(OMO_Sales) +
+  geom_point(aes(OMO_Level, Sales)) +
+  scale_y_continuous(labels = comma)
+
+#Buy Count
+ggplot(OMO_Sales) +
+  geom_point(aes(OMO_Level, Buy_Count)) +
+  scale_y_continuous(labels = comma)
+```
+## OMO_New(Filter)
+### Level
+```{r}
+OMO <- M_O %>%
+  filter(Register_Trade <= 365 & Register_Trade >= 0) %>% 
+  group_by(MemberID, ChannelOO) %>% 
+  count() %>%
+  spread(ChannelOO, n) %>% 
+  replace(., is.na(.), 0) %>%
+  mutate(OMO_Level  = (Offline + 0.0001)*(Online + 0.0001))
+```
+### Bind Sales
+```{r}
+OMO_Sales <- OMO %>%
+  left_join(M_O %>%
+              group_by(MemberID) %>%
+              summarise(Sales = sum(TotalSalesAmount)),
+            by = "MemberID") %>% 
+  filter(Sales <= 100000)
+```
+### Plot(Off/OMO_New/On)
+```{r}
+#Sales
+ggplot(OMO_Sales, aes(OMO_Level, Sales)) +
+  geom_point() +
+  geom_smooth(method = "gam") +
+  scale_y_continuous(labels = comma)
+
+#Buy Count
+ggplot(OMO_Sales, aes(OMO_Level, Buy_Count)) +
+  geom_point() +
+  geom_smooth() +
+  scale_y_continuous(labels = comma)
+```
+
+# Member & Order Analysis
+## Filter data
+```{r}
+M_O_Filter <- Member %>%
+  left_join(Order, by = "MemberID") %>% 
+  drop_na() %>% #There are members having no orders
+  mutate(Member_Time = as.numeric(Sys.Date() - as.Date(RegisterDate))) %>%
+  mutate(Register_Trade = as.numeric(TradesDate - RegisterDate)) %>% 
+  select(MemberID, MemberCardLevel, Age, Member_Time, TradesGroupCode, TradesDate, TradesTime, ChannelOO, Register_Trade) %>%
+  filter(Age > 0 & Age <= 100, Member_Time < 10000, Register_Trade > 0, MemberCardLevel != 0) %>%
+  right_join(Order %>%
+         group_by(TradesGroupCode) %>%
+         summarise(Sales = sum(TotalSalesAmount)) %>%
+         filter(Sales > 0), by = "TradesGroupCode") %>% 
+  drop_na() #There are orders that were from visitors
+```
+## Register_Trade & Order Count
+```{r}
+ggplot(M_O_Filter, aes(Register_Trade)) +
+  geom_density(colour = "darkblue") +
+  labs(x = "Register to Trade Time", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+```
+## Sales & MemberCardLevel
+```{r}
+ggplot(M_O_Filter %>%
+         group_by(MemberCardLevel) %>%
+         summarise(SumSales = sum(Sales)), aes(MemberCardLevel, SumSales)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>%
+         group_by(MemberCardLevel) %>%
+         summarise(MeanSales = mean(Sales), MedianSales = median(Sales)) %>% 
+         gather(Sales_Stats, value = "Value", -MemberCardLevel), aes(x = MemberCardLevel, y = Value, fill = Sales_Stats)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>% group_by(MemberCardLevel) %>% count(), aes(MemberCardLevel, n)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = comma)
+```
+## Sales & MemberCardLevel
+```{r}
+ggplot(M_O_Filter, aes(Member_Time, Sales)) +
+  geom_smooth() +
+  scale_y_continuous(labels = comma)
+#`geom_smooth()` using method = 'gam' and formula 'y ~ s(x, bs = "cs")'
+```
+## Sales & Age
+```{r}
+ggplot(M_O_Filter, aes(Age, Sales)) +
+  geom_smooth() +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>%
+         mutate(Age_Group = case_when(
+          (Age > 0 & Age <= 10) ~ "0s",
+          (Age > 10 & Age <= 20) ~ "10s",
+          (Age > 20 & Age <= 30) ~ "20s",
+          (Age > 30 & Age <= 40) ~ "30s",
+          (Age > 40 & Age <= 50) ~ "40s",
+          (Age > 50 & Age <= 60) ~ "50s",
+          (Age > 60 & Age <= 70) ~ "60s",
+          (Age > 70 & Age <= 80) ~ "70s",
+          (Age > 80 & Age <= 90) ~ "80s",
+          (Age > 90 & Age <= 100) ~ "90s")) %>%
+         group_by(Age_Group) %>%
+         summarise(MeanSales = mean(Sales), MedianSales = median(Sales)) %>% 
+         gather(Sales_Stats, value = "Value", -Age_Group), aes(x = Age_Group, y = Value, fill = Sales_Stats)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>%
+         mutate(Age_Group = case_when(
+          (Age > 0 & Age <= 10) ~ "0s",
+          (Age > 10 & Age <= 20) ~ "10s",
+          (Age > 20 & Age <= 30) ~ "20s",
+          (Age > 30 & Age <= 40) ~ "30s",
+          (Age > 40 & Age <= 50) ~ "40s",
+          (Age > 50 & Age <= 60) ~ "50s",
+          (Age > 60 & Age <= 70) ~ "60s",
+          (Age > 70 & Age <= 80) ~ "70s",
+          (Age > 80 & Age <= 90) ~ "80s",
+          (Age > 90 & Age <= 100) ~ "90s")) %>%
+         group_by(Age_Group) %>% summarise(SumSales = sum(Sales)), aes(Age_Group, SumSales)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>%
+         mutate(Age_Group = case_when(
+          (Age > 0 & Age <= 10) ~ "0s",
+          (Age > 10 & Age <= 20) ~ "10s",
+          (Age > 20 & Age <= 30) ~ "20s",
+          (Age > 30 & Age <= 40) ~ "30s",
+          (Age > 40 & Age <= 50) ~ "40s",
+          (Age > 50 & Age <= 60) ~ "50s",
+          (Age > 60 & Age <= 70) ~ "60s",
+          (Age > 70 & Age <= 80) ~ "70s",
+          (Age > 80 & Age <= 90) ~ "80s",
+          (Age > 90 & Age <= 100) ~ "90s")) %>%
+         group_by(Age_Group) %>% count(), aes(Age_Group, n)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = comma)
+
+```
+## Sales & ChannelType
+```{r}
+ggplot(M_O_Filter %>% group_by(ChannelOO) %>% summarise(SumSales = sum(Sales)), aes(x = ChannelOO, y = SumSales)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>%
+         group_by(ChannelOO) %>%
+         summarise(MeanSales = mean(Sales), MedianSales = median(Sales)) %>% 
+         gather(Sales_Stats, value = "Value", -ChannelOO), aes(x = ChannelOO, y = Value, fill = Sales_Stats)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = comma)
+```
+## Sales & TradeTime
+```{r}
+ggplot(M_O_Filter %>% group_by(TradesTime) %>% summarise(SumSales = sum(Sales)), aes(TradesTime, SumSales)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = comma)
+
+ggplot(M_O_Filter %>%
+         group_by(TradesTime) %>%
+         summarise(MeanSales = mean(Sales), MedianSales = median(Sales)) %>% 
+         gather(Sales_Stats, value = "Value", -TradesTime), aes(x = TradesTime, y = Value, fill = Sales_Stats)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = comma)
+```
+# Index
+## Filter data
+```{r}
+M_O_Filter <- Member %>%
+  filter(MemberID != "FIK884nrm/p3hkup+4Prcw==") %>% 
+  left_join(Order %>% filter(TotalSalesAmount > 0), by = "MemberID") %>% #, TotalSalesAmount < 100000
+  drop_na() %>% #There are members having no orders
+  mutate(Member_Time = as.numeric(Sys.Date() - as.Date(RegisterDate))) %>%
+  mutate(Register_Trade = as.numeric(TradesDate - RegisterDate)) %>% 
+  mutate(Trade_Now = as.numeric(Sys.Date() - TradesDate)) %>% 
+  select(MemberID, MemberCardLevel, Age, Member_Time, TradesGroupCode, TradesDate, TradesTime, ChannelOO, Register_Trade, Trade_Now, TotalSalesAmount, TotalDiscount) %>%
+  filter(Age > 0 & Age <= 100, Member_Time < 10000, Register_Trade > 0, MemberCardLevel == 10) %>%
+  drop_na()
+```
+
+## OMO
+```{r}
+OMO <- M_O_Filter %>%
+  #filter(Register_Trade <= 365) %>%
+  group_by(MemberID, ChannelOO) %>% 
+  count() %>%
+  spread(ChannelOO, n) %>% 
+  replace(., is.na(.), 0) %>%
+  mutate(OMO_Level  = ((Offline + 0.0001)*100/(Offline + Online))*((Online + 0.0001)*100/(Offline + Online))) %>% 
+  #select(MemberID, OMO_Level) %>% 
+  ungroup()
+```
+
+```{r}
+ggplot(OMO %>% mutate_each(funs(scale), OMO_Level), aes(OMO_Level)) +
+  geom_density(colour = "darkblue") +
+  labs(x = "OMO Level", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+```
+
+## RFM
+```{r}
+RFM <- M_O_Filter %>%
+  group_by(MemberID) %>%
+  summarise(Recency = min(Trade_Now),
+            Frequency = n()/Member_Time,
+            Monetary = sum(TotalSalesAmount)) %>% 
+  distinct()
+```
+
+```{r}
+ggplot(RFM) +
+  geom_density(aes(Recency), colour = "darkblue") +
+  labs(x = "Recency", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+
+ggplot(RFM) +
+  geom_density(aes(Frequency), colour = "darkblue") +
+  labs(x = "Frequency", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+
+ggplot(RFM) +
+  geom_density(aes(Monetary), colour = "darkblue") +
+  labs(x = "Monetary", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+```
+## CAI
+```{r}
+CAI <- M_O_Filter %>%
+  select(MemberID, Member_Time, Register_Trade) %>%
+  group_by(MemberID) %>%
+  arrange(Register_Trade) %>% 
+  mutate(lag_RT = lead(Register_Trade)) %>%
+  mutate(lag_RT = coalesce(lag_RT,Member_Time)) %>%
+  mutate(Interval = lag_RT - Register_Trade) %>%
+  mutate(Order = order(lag_RT)) %>% 
+  mutate(Average_Buy = Member_Time / n()) %>%
+  mutate(Weight = 0.8 ** (Order - 1)) %>% 
+  mutate(Weighted_Interval = Interval * Weight) %>%
+  summarize(Average_Buy = Average_Buy, Weighted_Buy = sum(Weighted_Interval)/sum(Weight)) %>%
+  distinct() %>% 
+  mutate(CAI = (Average_Buy - Weighted_Buy) / Average_Buy * 100) %>% 
+  mutate(CAI_Group = case_when(
+    (CAI <= -80 & CAI >= -100) ~ "Silent",
+    (CAI <= 100 & CAI >= 80) ~ "Active",
+    (CAI <= 10 & CAI >= -10) ~ "Stable",
+    TRUE ~ "Other"))
+```
+```{r}
+ggplot(CAI) + 
+  geom_density(aes(CAI), colour = "darkblue") +
+  labs(x = "CAI", y = "Distribution") +
+  scale_y_continuous(labels = comma)
+```
+
+## Discount Count
+```{r}
+DC <- M_O_Filter %>% 
+  select(MemberID, TotalDiscount) %>% 
+  group_by(MemberID) %>% 
+  summarise(DC = sum(TotalDiscount != 0))
+```
+
+```{r}
+ggplot(DC %>% filter(DC != "Other") %>% group_by(DC) %>% count(), aes(DC, n)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.5) + 
+  labs(x = "Discount Count", y = "Count") +
+  scale_y_continuous(labels = comma)
+```
+## Traffic Source
+```{r}
+Traffic <- Traffic_Source %>%
+  select(uid, cs) %>%
+  filter(uid != "") %>%
+  group_by(uid, cs) %>% 
+  count() %>% 
+  spread(cs, cs_n) %>% 
+  select(uid, google, FBAD, SMS, LINE, IGPO, IGAD) %>% 
+  replace(., is.na(.), 0) %>% 
+  gather(cs, cs_n, -uid) %>% 
+  group_by(uid) %>% 
+  arrange(desc(cs_n)) %>% 
+  filter(row_number() == 1) %>% 
+  mutate(cs = replace(cs, cs_n == 0, "NoAd")) %>% 
+  mutate(uid = gsub("%2B", "+", uid)) %>% 
+  mutate(uid = gsub("%2F", "/", uid)) %>% 
+  mutate(uid = gsub("%3D", "=", uid))
+#write.csv(Traffic, "temp/Traffic.csv")
+```
+
+```{r}
+Traffic_raw <- read.csv("temp/Traffic.csv")
+Traffic <- Traffic_raw %>%
+  select(uid, google, FBAD, SMS, LINE, IGPO, IGAD) %>% 
+  replace(., is.na(.), 0) %>% 
+  gather(cs, cs_n, -uid) %>% 
+  group_by(uid) %>% 
+  arrange(desc(cs_n)) %>% 
+  filter(row_number() == 1) %>% 
+  mutate(cs = replace(cs, cs_n == 0, "NoAd")) %>% 
+  mutate(uid = gsub("%2B", "+", uid)) %>% 
+  mutate(uid = gsub("%2F", "/", uid)) %>% 
+  mutate(uid = gsub("%3D", "=", uid))
+```
+## Profile
+```{r}
+Profile <- Profile_raw %>%
+  select(X91APP_uid, matches("銀行|生涯|新聞|電視|百貨"))
+```
+## Bind Index
+```{r}
+Index <- OMO %>% select(MemberID, OMO_Level) %>%
+  left_join(RFM, by = "MemberID") %>%
+  left_join(CAI %>% select(-Average_Buy, -Weighted_Buy, -CAI_Group), by = "MemberID") %>%
+  drop_na() %>% 
+  mutate_each(funs(scale), Recency, Frequency, CAI)
+```
+
+# Cluster
+## Find Optimal K(Elbow Method)
+```{r}
+set.seed(123)
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 1)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 2)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 3)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 4)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 5)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 6)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 7)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 8)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 9)
+Cluster_Result$tot.withinss
+
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 10)
+Cluster_Result$tot.withinss
+```
+## K-means
+```{r}
+Cluster_Result <- kmeans(Index %>% select(-MemberID, -Monetary, -OMO_Level), centers = 6)
+Cluster_Result$tot.withinss
+Cluster_Result$withinss
+Cluster_Result$betweenss
+```
+## Plot
+```{r}
+fviz_cluster(Cluster_Result, geom = "point",  data = Index %>% select(-MemberID, -Monetary, -OMO_Level))
+```
+
+# Observe
+## Count
+```{r}
+Index %>%
+  select(MemberID, OMO_Level, Monetary) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(M_O_Filter %>% select(MemberID, Age, Member_Time) %>% distinct(), by = "MemberID") %>%
+  left_join(DC, by = "MemberID") %>%
+  group_by(Cluster) %>%
+  count() %>% View()
+```
+## R,F,CAI
+```{r}
+OMO %>%
+  select(MemberID, OMO_Level) %>%
+  left_join(RFM, by = "MemberID") %>%
+  left_join(CAI %>% select(-Average_Buy, -Weighted_Buy, -CAI_Group), by = "MemberID") %>%
+  drop_na() %>%
+  select(MemberID, Recency, Frequency, CAI) %>%
+  mutate(Cluster = Cluster_Result$cluster) %>% 
+  left_join(DC, by = "MemberID") %>%
+  group_by(Cluster) %>%
+  summarise(`Mean R` = mean(Recency),
+            `Mean F` = mean(Frequency),
+            `Mean CAI` = mean(CAI)) %>% View()
+```
+## Member Count, Age, Member Time, OMO, M, Discount Count
+```{r}
+Index %>%
+  select(MemberID, Monetary) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(M_O_Filter %>% select(MemberID, Age, Member_Time) %>% distinct(), by = "MemberID") %>%
+  left_join(OMO, by = "MemberID") %>% 
+  left_join(DC, by = "MemberID") %>%
+  group_by(Cluster) %>%
+  summarise(`Mean Age` = mean(Age),
+            `Mean Member Time` = mean(Member_Time),
+            `Mean OMO` = mean(OMO_Level),
+            `Offline Count` = sum(Offline),
+            `Online Count` = sum(Online),
+            `Mean Sales Amount(M)` = mean(Monetary),
+            `Discount Count` = sum(DC)) %>% View()
+```
+## Traffic Source
+```{r}
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Traffic, by = c("MemberID" = "uid")) %>%
+  group_by(Cluster) %>% 
+  count(cs) %>% 
+  spread(cs, n) %>% 
+  replace(., is.na(.), 0) %>%
+  select(-`<NA>`) %>% View()
+```
+## Profile
+```{r}
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Profile, by = c("MemberID" = "X91APP_uid")) %>%
+  drop_na() %>%
+  group_by(Cluster) %>%
+  count() %>% View()
+
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Profile %>% select(X91APP_uid, matches("銀行")), by = c("MemberID" = "X91APP_uid")) %>%
+  drop_na() %>% 
+  group_by(Cluster) %>% 
+  select(-MemberID) %>% 
+  summarise_all(mean) %>% View()#%>%
+  #mutate(sum = rowSums(across(where(is.numeric))))
+
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Profile %>% select(X91APP_uid, matches("生涯")), by = c("MemberID" = "X91APP_uid")) %>%
+  drop_na() %>% 
+  group_by(Cluster) %>% 
+  select(-MemberID) %>% 
+  summarise_all(mean) %>% View()
+
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Profile %>% select(X91APP_uid, matches("新聞")), by = c("MemberID" = "X91APP_uid")) %>%
+  drop_na() %>% 
+  group_by(Cluster) %>% 
+  select(-MemberID) %>% 
+  summarise_all(mean) %>% View()
+
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Profile %>% select(X91APP_uid, matches("電視節目")), by = c("MemberID" = "X91APP_uid")) %>%
+  drop_na() %>% 
+  group_by(Cluster) %>% 
+  select(-MemberID) %>% 
+  summarise_all(mean) %>% View()
+
+Index %>%
+  select(MemberID) %>% 
+  mutate(Cluster = Cluster_Result$cluster) %>%
+  left_join(Profile %>% select(X91APP_uid, matches("百貨通路")), by = c("MemberID" = "X91APP_uid")) %>%
+  drop_na() %>% 
+  group_by(Cluster) %>% 
+  select(-MemberID) %>% 
+  summarise_all(mean) %>% View()
+```
